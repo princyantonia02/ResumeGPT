@@ -1,0 +1,52 @@
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+def compute_match(resume_text: str, jd_text: str, top_k: int = 5):
+    """
+    Returns:
+    - match_score (int 0–100)
+    - matched_keywords (list)
+    - missing_keywords (list)
+    """
+
+    documents = [resume_text, jd_text]
+
+    vectorizer = TfidfVectorizer(
+        stop_words="english",
+        max_features=1000,
+        ngram_range=(1, 2)
+    )
+
+    tfidf_matrix = vectorizer.fit_transform(documents)
+
+    # Cosine similarity
+    similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+    match_score = int(round(similarity * 100))
+
+    feature_names = np.array(vectorizer.get_feature_names_out())
+
+    resume_vec = tfidf_matrix[0].toarray()[0]
+    jd_vec = tfidf_matrix[1].toarray()[0]
+
+    # Keywords present in JD
+    jd_indices = jd_vec.argsort()[::-1]
+    resume_indices = resume_vec.argsort()[::-1]
+
+    matched = []
+    missing = []
+
+    for idx in jd_indices:
+        if jd_vec[idx] == 0:
+            continue
+        word = feature_names[idx]
+
+        if resume_vec[idx] > 0 and len(matched) < top_k:
+            matched.append(word)
+        elif resume_vec[idx] == 0 and len(missing) < top_k:
+            missing.append(word)
+
+        if len(matched) >= top_k and len(missing) >= top_k:
+            break
+
+    return match_score, matched, missing
