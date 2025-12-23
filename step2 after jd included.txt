@@ -1,0 +1,90 @@
+import streamlit as st
+import PyPDF2
+import io
+import os
+import requests
+from dotenv import load_dotenv
+
+# ---------------- Load env ----------------
+load_dotenv()
+HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+API_URL = "https://router.huggingface.co/v1/chat/completions"
+HEADERS = {
+    "Authorization": f"Bearer {HF_API_KEY}",
+    "Content-Type": "application/json"
+}
+
+if not HF_API_KEY:
+    st.error("HUGGINGFACE_API_KEY not found in .env")
+    st.stop()
+
+# ---------------- Streamlit UI ----------------
+st.set_page_config(page_title="Smart Resume Feedback", layout="centered")
+st.title("🚀 Smart Resume Feedback Generator")
+
+uploaded_file = st.file_uploader("Upload resume (PDF/TXT)", type=["pdf", "txt"])
+job_role = st.text_input("Target job role (optional)")
+st.subheader("📌 Job Description (Optional)")
+job_description = st.text_area(
+    "Paste the job description to get resume–JD matching insights",
+    height=200,
+    placeholder="Example: Looking for a Data Scientist with Python, SQL, ML, and data visualization skills..."
+)
+
+job_description = job_description.strip()
+jd_provided = len(job_description) > 0
+analyze = st.button("Generate Feedback 📝")
+
+# ---------------- Helpers ----------------
+def extract_text_from_pdf(file):
+    reader = PyPDF2.PdfReader(file)
+    return "\n".join([p.extract_text() or "" for p in reader.pages])
+
+def extract_text(file):
+    if file.type == "application/pdf":
+        return extract_text_from_pdf(io.BytesIO(file.read()))
+    return file.read().decode("utf-8")
+
+def query_hf(prompt):
+    payload = {
+        "model": "deepseek-ai/DeepSeek-R1",
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=120)
+    if response.status_code != 200:
+        st.error(f"HTTP Error {response.status_code}: {response.text}")
+        return ""
+    return response.json()["choices"][0]["message"]["content"]
+
+# ---------------- Main Logic ----------------
+if analyze and uploaded_file:
+    resume_text = extract_text(uploaded_file)
+    if not resume_text.strip():
+        st.error("❌ Could not extract text from resume.")
+        st.stop()
+
+    prompt = f"""
+Analyze the following resume and provide **concise, scannable feedback**.
+
+Start with a **5–10 line summary** highlighting key strengths and overall observations about the resume content.
+
+Then organize feedback under bold headings with emojis. For each heading, provide 2–6 bullet points based on the resume. Focus on these areas:
+
+🎯 Clarity & Impact
+⚙️ Skills Relevance
+📄 Structure & Formatting
+✨ Improvements / Recommendations
+
+Do not mention dates or any reference to acting as an HR recruiter. Keep the feedback **easy to read, actionable, and visually structured**.
+Resume:
+{resume_text}
+"""
+
+    with st.spinner("Analyzing resume..."):
+        feedback = query_hf(prompt)
+
+    # ---------------- Display ----------------
+    st.markdown(
+        f"<div style='font-size:16px; line-height:1.5'>{feedback}</div>",
+        unsafe_allow_html=True
+    )
